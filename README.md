@@ -24,10 +24,12 @@ git init
 git add .
 git commit -m "Initial commit: Liquid Glass Todo"
 git branch -M main
-git remote add origin https://github.com/<你的用户名>/<仓库名>.git
+git remote add origin https://github.com/ForeverglowY/todolist.git
 git push -u origin main
 ```
 
-若已安装 [GitHub CLI](https://cli.github.com/)，也可在登录后执行 `gh repo create <仓库名> --public --source=. --push`。
+本仓库已设置 `origin` 为：<https://github.com/ForeverglowY/todolist>。若尚未在网页上创建同名空仓库，请先创建后再执行 `git push`。
 
-SSH 远程地址请把 `https://github.com/...` 换成 `git@github.com:用户名/仓库名.git`。
+若已安装 [GitHub CLI](https://cli.github.com/) 且已登录，也可在仓库目录执行：`gh repo create todolist --public --source=. --remote=origin --push`（若已存在 `origin`，需先 `git remote remove origin` 再执行，或改用网页创建）。
+
+SSH 远程：`git@github.com:ForeverglowY/todolist.git`
