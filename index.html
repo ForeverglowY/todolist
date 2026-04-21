@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Liquid Glass Todo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="fx" aria-hidden="true">
+      <div class="blob blob-a"></div>
+      <div class="blob blob-b"></div>
+      <div class="blob blob-c"></div>
+      <div class="grain"></div>
+    </div>
+
+    <main class="shell">
+      <header class="topbar glass">
+        <div class="brand">
+          <div class="mark" aria-hidden="true"></div>
+          <div class="brandText">
+            <div class="brandTitle">Todo</div>
+            <div class="brandSub">Liquid Glass</div>
+          </div>
+        </div>
+        <div class="stats" id="stats" aria-live="polite"></div>
+      </header>
+
+      <section class="card glass">
+        <form id="form" class="composer" autocomplete="off">
+          <div class="inputWrap">
+            <div class="titleField">
+              <input
+                id="title"
+                name="title"
+                class="title"
+                placeholder="写下下一步要做的事…"
+                maxlength="120"
+                required
+              />
+              <div class="hint" id="hint">
+                Enter 添加 · ⌘/Ctrl+K 聚焦 · ⌘/Ctrl+Backspace 清空已完成
+              </div>
+            </div>
+
+            <div class="dtRow">
+              <label class="dt glassInset" aria-label="提醒时间（可选）">
+                <span class="dtLabel">提醒</span>
+                <input
+                  id="remindAt"
+                  name="remindAt"
+                  type="datetime-local"
+                  class="dtInput"
+                  lang="en-GB"
+                  step="60"
+                  readonly
+                />
+              </label>
+              <label class="dt glassInset" aria-label="截止时间（可选）">
+                <span class="dtLabel">截止</span>
+                <input
+                  id="dueAt"
+                  name="dueAt"
+                  type="datetime-local"
+                  class="dtInput"
+                  lang="en-GB"
+                  step="60"
+                  readonly
+                />
+              </label>
+            </div>
+          </div>
+          <button class="btn primary" type="submit">
+            <span class="btnGlow" aria-hidden="true"></span>
+            添加
+          </button>
+        </form>
+
+        <div class="toolbar">
+          <div class="seg glassInset" role="tablist" aria-label="筛选">
+            <button class="segBtn" type="button" data-filter="all" role="tab" aria-selected="true">
+              全部
+            </button>
+            <button class="segBtn" type="button" data-filter="active" role="tab" aria-selected="false">
+              进行中
+            </button>
+            <button class="segBtn" type="button" data-filter="done" role="tab" aria-selected="false">
+              已完成
+            </button>
+          </div>
+
+          <div class="actions">
+            <button class="btn ghost" type="button" id="clearDone">
+              清空已完成
+            </button>
+            <button class="btn ghost" type="button" id="seed">
+              生成示例
+            </button>
+          </div>
+        </div>
+
+        <div class="listWrap">
+          <ul id="list" class="list" aria-label="待办列表"></ul>
+          <div class="empty glassInset" id="empty" hidden>
+            <div class="emptyTitle" id="emptyTitle">现在很干净</div>
+            <div class="emptySub" id="emptySub">加一条任务，或者点「生成示例」。</div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <div class="footLine">
+          小技巧：点左侧圆点完成；Shift 连点可一串切换；点铅笔可编辑；删错可用弹窗里的「撤销」。
+        </div>
+      </footer>
+    </main>
+
+    <div class="editSheet" id="editSheet" hidden>
+      <div class="editBackdrop" data-edit-close="1" aria-hidden="true"></div>
+      <div class="editPanel glass" role="dialog" aria-modal="true" aria-labelledby="editSheetHeading">
+        <div class="editTop">
+          <div class="editHeading" id="editSheetHeading">编辑任务</div>
+          <button type="button" class="dtpBtn" data-edit-close="1">关闭</button>
+        </div>
+        <div class="editBody">
+          <label class="editField">
+            <span class="editFieldLabel">标题</span>
+            <input
+              id="editTitleInput"
+              type="text"
+              class="editInput"
+              maxlength="120"
+              autocomplete="off"
+              placeholder="要做什么…"
+            />
+          </label>
+          <div class="dtRow editDtRow">
+            <label class="dt glassInset" aria-label="提醒时间（可选）">
+              <span class="dtLabel">提醒</span>
+              <input
+                id="editRemindAt"
+                type="datetime-local"
+                class="dtInput"
+                lang="en-GB"
+                step="60"
+                readonly
+              />
+            </label>
+            <label class="dt glassInset" aria-label="截止时间（可选）">
+              <span class="dtLabel">截止</span>
+              <input
+                id="editDueAt"
+                type="datetime-local"
+                class="dtInput"
+                lang="en-GB"
+                step="60"
+                readonly
+              />
+            </label>
+          </div>
+        </div>
+        <div class="editActions">
+          <button type="button" class="btn ghost" data-edit-close="1">取消</button>
+          <button type="button" class="btn primary" id="editSave">
+            <span class="btnGlow" aria-hidden="true"></span>
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dtp" id="dtp" hidden>
+      <div class="dtpBackdrop" data-dtp-close="1" aria-hidden="true"></div>
+      <div class="dtpPanel glass" role="dialog" aria-modal="true" aria-label="选择日期时间">
+        <div class="dtpTop">
+          <div class="dtpTitle" id="dtpTitle">选择时间</div>
+          <div class="dtpTopBtns">
+            <button class="dtpBtn" type="button" id="dtpClear">清空</button>
+            <button class="dtpBtn" type="button" data-dtp-close="1">关闭</button>
+          </div>
+        </div>
+
+        <div class="dtpGrid">
+          <div class="dtpCal">
+            <div class="dtpNav">
+              <button class="dtpIcon" type="button" id="dtpPrev" aria-label="上个月">‹</button>
+              <div class="dtpMonth" id="dtpMonth"></div>
+              <button class="dtpIcon" type="button" id="dtpNext" aria-label="下个月">›</button>
+            </div>
+            <div class="dtpDow">
+              <div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div><div>日</div>
+            </div>
+            <div class="dtpDays" id="dtpDays"></div>
+          </div>
+
+          <div class="dtpTime">
+            <div class="dtpTimeRow">
+              <div class="dtpLabel">时间（24小时）</div>
+              <div class="dtpTimePick">
+                <div class="dtpSelWrap">
+                  <select class="dtpSel" id="dtpHour" aria-label="小时"></select>
+                </div>
+                <span class="dtpSep" aria-hidden="true">:</span>
+                <div class="dtpSelWrap">
+                  <select class="dtpSel" id="dtpMin" aria-label="分钟"></select>
+                </div>
+              </div>
+            </div>
+            <div class="dtpActions">
+              <button class="btn ghost" type="button" id="dtpNow">现在</button>
+              <button class="btn primary" type="button" id="dtpOk"><span class="btnGlow" aria-hidden="true"></span>确定</button>
+            </div>
+            <div class="dtpHint">提示：点日期 + 选小时分钟即可。按 Esc 关闭。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toastHost" id="toastHost" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>
