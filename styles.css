@@ -218,8 +218,102 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 16px 18px;
   margin-bottom: 16px;
+}
+
+.topbarRight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 14px;
+  max-width: min(520px, 58vw);
+}
+
+.userRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.displayUser {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.authScreen {
+  position: relative;
+  z-index: 2;
+}
+
+.shellAuth {
+  max-width: 440px;
+}
+
+.authCard {
+  padding: 20px 18px;
+}
+
+.authBrand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.authForm {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.authPanelTitle {
+  margin: 0 0 2px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+/* [hidden] 会被上面 display:grid 盖住，必须显式隐藏 */
+.authForm[hidden],
+.authSwitch [hidden] {
+  display: none !important;
+}
+
+.authLabel {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.authSubmit {
+  margin-top: 4px;
+  width: 100%;
+}
+
+.authSwitch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  justify-content: center;
+}
+
+.authErr {
+  color: rgba(var(--danger) / 0.95);
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 4px;
 }
 
 .brand {

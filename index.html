@@ -21,7 +21,80 @@
       <div class="grain"></div>
     </div>
 
-    <main class="shell">
+    <div id="authScreen" class="authScreen" hidden>
+      <main class="shell shellAuth">
+        <section class="card glass authCard">
+          <div class="authBrand">
+            <div class="mark" aria-hidden="true"></div>
+            <div>
+              <div class="brandTitle">Todo</div>
+              <div class="brandSub">登录后云端同步</div>
+            </div>
+          </div>
+          <p class="authErr" id="authErr" role="alert" hidden></p>
+
+          <form id="loginForm" class="authForm authFormLogin" autocomplete="on" aria-labelledby="loginHeading">
+            <h2 class="authPanelTitle" id="loginHeading">登录</h2>
+            <label class="authLabel"
+              >用户名
+              <input class="title authInput" id="loginUser" name="username" required minlength="2" maxlength="32"
+            /></label>
+            <label class="authLabel"
+              >密码
+              <input
+                class="title authInput"
+                id="loginPass"
+                type="password"
+                name="password"
+                required
+                minlength="6"
+                autocomplete="current-password"
+            /></label>
+            <button type="submit" class="btn primary authSubmit" id="loginSubmit">
+              <span class="btnGlow" aria-hidden="true"></span>
+              登录
+            </button>
+          </form>
+
+          <form id="registerForm" class="authForm authFormRegister" hidden autocomplete="off" aria-labelledby="registerHeading">
+            <h2 class="authPanelTitle" id="registerHeading">注册</h2>
+            <label class="authLabel"
+              >用户名
+              <input
+                class="title authInput"
+                id="regUser"
+                name="reg_username"
+                required
+                minlength="2"
+                maxlength="32"
+                autocomplete="username"
+            /></label>
+            <label class="authLabel"
+              >密码（至少 6 位）
+              <input
+                class="title authInput"
+                id="regPass"
+                type="password"
+                required
+                minlength="6"
+                autocomplete="new-password"
+            /></label>
+            <button type="submit" class="btn primary authSubmit" id="registerSubmit">
+              <span class="btnGlow" aria-hidden="true"></span>
+              注册并登录
+            </button>
+          </form>
+
+          <div class="authSwitch">
+            <button type="button" class="btn ghost" id="showRegister">没有账号？注册</button>
+            <button type="button" class="btn ghost" id="showLogin" hidden>已有账号？去登录</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="mainShell">
+      <main class="shell">
       <header class="topbar glass">
         <div class="brand">
           <div class="mark" aria-hidden="true"></div>
@@ -30,7 +103,13 @@
             <div class="brandSub">Liquid Glass</div>
           </div>
         </div>
-        <div class="stats" id="stats" aria-live="polite"></div>
+        <div class="topbarRight">
+          <div class="stats" id="stats" aria-live="polite"></div>
+          <div class="userRow" id="userRow" hidden>
+            <span class="displayUser" id="displayUser"></span>
+            <button type="button" class="btn ghost" id="logoutBtn">退出</button>
+          </div>
+        </div>
       </header>
 
       <section class="card glass">
@@ -116,11 +195,12 @@
       </section>
 
       <footer class="foot">
-        <div class="footLine">
+        <div class="footLine" id="footLine">
           小技巧：点左侧圆点完成；Shift 连点可一串切换；点铅笔可编辑；删错可用弹窗里的「撤销」。
         </div>
       </footer>
-    </main>
+      </main>
+    </div>
 
     <div class="editSheet" id="editSheet" hidden>
       <div class="editBackdrop" data-edit-close="1" aria-hidden="true"></div>

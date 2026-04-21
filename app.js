@@ -1,4 +1,11 @@
 const STORAGE_KEY = "liquid_glass_todo_v1";
+const TOKEN_KEY = "todolist_token_v1";
+const FILTER_KEY = "todolist_filter_v1";
+
+/** 后端可用时由 boot() 置为 true（同源 /api/health） */
+let apiMode = false;
+let authToken = null;
+let currentUsername = "";
 
 function nowIso() {
   return new Date().toISOString();
@@ -44,22 +51,85 @@ function toDateTimeLocalValue(iso) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
-function loadState() {
+function loadFilter() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { items: [], filter: "all" };
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return { items: [], filter: "all" };
-    const items = Array.isArray(parsed.items) ? parsed.items : [];
-    const filter = ["all", "active", "done"].includes(parsed.filter) ? parsed.filter : "all";
-    return { items, filter };
+    const f = localStorage.getItem(FILTER_KEY);
+    return ["all", "active", "done"].includes(f) ? f : "all";
   } catch {
-    return { items: [], filter: "all" };
+    return "all";
   }
 }
 
-function saveState(state) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+function saveFilterOnly() {
+  try {
+    localStorage.setItem(FILTER_KEY, state.filter);
+  } catch (_) {}
+}
+
+function loadLegacyState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { items: [], filter: loadFilter() };
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return { items: [], filter: loadFilter() };
+    const items = Array.isArray(parsed.items) ? parsed.items : [];
+    const filter = ["all", "active", "done"].includes(parsed.filter) ? parsed.filter : loadFilter();
+    return { items, filter };
+  } catch {
+    return { items: [], filter: loadFilter() };
+  }
+}
+
+function persistState() {
+  if (useServer()) {
+    saveFilterOnly();
+    return;
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    saveFilterOnly();
+  } catch (_) {}
+}
+
+function useServer() {
+  return !!(apiMode && authToken);
+}
+
+function logout() {
+  authToken = null;
+  currentUsername = "";
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch (_) {}
+  state.items = [];
+  if (els.userRow) els.userRow.hidden = true;
+  if (apiMode) {
+    if (els.mainShell) els.mainShell.hidden = true;
+    if (els.authScreen) els.authScreen.hidden = false;
+  }
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (authToken) opts.headers.Authorization = `Bearer ${authToken}`;
+  if (body !== undefined && method !== "GET" && method !== "DELETE") {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch(path, opts);
+  const text = await r.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { _raw: text };
+  }
+  if (r.status === 401) {
+    logout();
+    throw new Error(typeof data.error === "string" ? data.error : "登录已失效");
+  }
+  if (!r.ok) throw new Error(typeof data.error === "string" ? data.error : text || String(r.status));
+  return data;
 }
 
 function clamp(n, min, max) {
@@ -107,9 +177,24 @@ const els = {
   dtpMin: document.getElementById("dtpMin"),
   dtpNow: document.getElementById("dtpNow"),
   dtpOk: document.getElementById("dtpOk"),
+  authScreen: document.getElementById("authScreen"),
+  mainShell: document.getElementById("mainShell"),
+  loginForm: document.getElementById("loginForm"),
+  registerForm: document.getElementById("registerForm"),
+  authErr: document.getElementById("authErr"),
+  loginUser: document.getElementById("loginUser"),
+  loginPass: document.getElementById("loginPass"),
+  regUser: document.getElementById("regUser"),
+  regPass: document.getElementById("regPass"),
+  showRegister: document.getElementById("showRegister"),
+  showLogin: document.getElementById("showLogin"),
+  logoutBtn: document.getElementById("logoutBtn"),
+  userRow: document.getElementById("userRow"),
+  displayUser: document.getElementById("displayUser"),
+  footLine: document.getElementById("footLine"),
 };
 
-let state = loadState();
+let state = { items: [], filter: loadFilter() };
 let lastToggledIndex = null;
 const reminderTimers = new Map(); // id -> timeout
 let editingId = null;
@@ -139,7 +224,7 @@ function migrateItems() {
       }
     }
   }
-  if (changed) saveState(state);
+  if (changed) persistState();
 }
 
 function visibleItems() {
@@ -162,7 +247,7 @@ function setFilter(next) {
     const on = b.dataset.filter === next;
     b.setAttribute("aria-selected", on ? "true" : "false");
   }
-  saveState(state);
+  persistState();
   render();
 }
 
@@ -257,7 +342,7 @@ function renderItem(it) {
 
   check.addEventListener("click", (e) => {
     const shift = e.shiftKey;
-    toggleDone(it.id, { shift });
+    void toggleDone(it.id, { shift });
     confettiPulse(li);
   });
 
@@ -272,7 +357,7 @@ function renderItem(it) {
   return li;
 }
 
-function addItem(title) {
+async function addItem(title) {
   const trimmed = title.trim();
   if (!trimmed) return;
   const remindAt = parseDateTimeLocal(els.remindAt?.value);
@@ -286,8 +371,20 @@ function addItem(title) {
     dueAt,
     remindedAt: null,
   };
+  if (useServer()) {
+    try {
+      const created = await api("POST", "/api/todos", item);
+      state.items.unshift(created);
+      persistState();
+      scheduleReminders();
+      render();
+    } catch (e) {
+      showToast({ title: "保存失败", sub: e.message });
+    }
+    return;
+  }
   state.items.unshift(item);
-  saveState(state);
+  persistState();
   scheduleReminders();
   render();
 }
@@ -296,11 +393,37 @@ function findIndexById(id) {
   return state.items.findIndex((x) => x.id === id);
 }
 
-function toggleDone(id, { shift }) {
+async function toggleDone(id, { shift }) {
   const idx = findIndexById(id);
   if (idx < 0) return;
 
   const next = !state.items[idx].done;
+
+  if (useServer()) {
+    try {
+      if (shift && lastToggledIndex != null) {
+        const a = clamp(lastToggledIndex, 0, state.items.length - 1);
+        const b = clamp(idx, 0, state.items.length - 1);
+        const from = Math.min(a, b);
+        const to = Math.max(a, b);
+        for (let i = from; i <= to; i++) {
+          const it = state.items[i];
+          await api("PATCH", `/api/todos/${encodeURIComponent(it.id)}`, { done: next });
+          state.items[i].done = next;
+        }
+      } else {
+        await api("PATCH", `/api/todos/${encodeURIComponent(id)}`, { done: next });
+        state.items[idx].done = next;
+      }
+      lastToggledIndex = idx;
+      persistState();
+      scheduleReminders();
+      render();
+    } catch (e) {
+      showToast({ title: "同步失败", sub: e.message });
+    }
+    return;
+  }
 
   if (shift && lastToggledIndex != null) {
     const a = clamp(lastToggledIndex, 0, state.items.length - 1);
@@ -313,7 +436,7 @@ function toggleDone(id, { shift }) {
   }
 
   lastToggledIndex = idx;
-  saveState(state);
+  persistState();
   scheduleReminders();
   render();
 }
@@ -330,19 +453,48 @@ function removeItem(id, liEl) {
     liEl.addEventListener(
       "animationend",
       () => {
-        const i = findIndexById(id);
-        if (i < 0) return;
-        state.items.splice(i, 1);
-        saveState(state);
-        scheduleReminders();
-        offerDeleteUndo(snapshot, i);
-        render();
+        void (async () => {
+          const i = findIndexById(id);
+          if (i < 0) return;
+          if (useServer()) {
+            try {
+              await api("DELETE", `/api/todos/${encodeURIComponent(id)}`);
+              state.items.splice(i, 1);
+              persistState();
+              scheduleReminders();
+              offerDeleteUndo(snapshot, i);
+              render();
+            } catch (e) {
+              showToast({ title: "删除失败", sub: e.message });
+              render();
+            }
+            return;
+          }
+          state.items.splice(i, 1);
+          persistState();
+          scheduleReminders();
+          offerDeleteUndo(snapshot, i);
+          render();
+        })();
       },
       { once: true }
     );
+  } else if (useServer()) {
+    void (async () => {
+      try {
+        await api("DELETE", `/api/todos/${encodeURIComponent(id)}`);
+        state.items.splice(idx, 1);
+        persistState();
+        scheduleReminders();
+        offerDeleteUndo(snapshot, idx);
+        render();
+      } catch (e) {
+        showToast({ title: "删除失败", sub: e.message });
+      }
+    })();
   } else {
     state.items.splice(idx, 1);
-    saveState(state);
+    persistState();
     scheduleReminders();
     offerDeleteUndo(snapshot, idx);
     render();
@@ -367,13 +519,25 @@ function offerDeleteUndo(item, index) {
   }, 8000);
 }
 
-function undoDelete() {
+async function undoDelete() {
   if (!deleteUndo) return;
   const { item, index } = deleteUndo;
   clearDeleteUndo();
   const i = Math.min(Math.max(0, index), state.items.length);
+  if (useServer()) {
+    try {
+      const created = await api("POST", "/api/todos", item);
+      state.items.splice(i, 0, created);
+      persistState();
+      scheduleReminders();
+      render();
+    } catch (e) {
+      showToast({ title: "撤销失败", sub: e.message });
+    }
+    return;
+  }
   state.items.splice(i, 0, item);
-  saveState(state);
+  persistState();
   scheduleReminders();
   render();
 }
@@ -396,7 +560,7 @@ function closeEdit() {
   syncBodyScroll();
 }
 
-function saveEdit() {
+async function saveEdit() {
   if (!editingId) return;
   const idx = findIndexById(editingId);
   if (idx < 0) {
@@ -408,26 +572,53 @@ function saveEdit() {
   const prevRemind = state.items[idx].remindAt;
   const remindAt = parseDateTimeLocal(els.editRemindAt?.value);
   const dueAt = parseDateTimeLocal(els.editDueAt?.value);
+  const patch = { title, remindAt, dueAt };
+  if (prevRemind !== remindAt) patch.remindedAt = null;
+  if (useServer()) {
+    try {
+      const updated = await api("PATCH", `/api/todos/${encodeURIComponent(editingId)}`, patch);
+      state.items[idx] = updated;
+      persistState();
+      scheduleReminders();
+      closeEdit();
+      render();
+    } catch (e) {
+      showToast({ title: "保存失败", sub: e.message });
+    }
+    return;
+  }
   state.items[idx].title = title;
   state.items[idx].remindAt = remindAt;
   state.items[idx].dueAt = dueAt;
   if (prevRemind !== remindAt) state.items[idx].remindedAt = null;
-  saveState(state);
+  persistState();
   scheduleReminders();
   closeEdit();
   render();
 }
 
-function clearDone() {
-  const before = state.items.length;
+async function clearDone() {
+  const hadDone = state.items.some((x) => x.done);
+  if (!hadDone) return;
+  if (useServer()) {
+    try {
+      await api("POST", "/api/todos/clear-done", {});
+      state.items = state.items.filter((x) => !x.done);
+      persistState();
+      scheduleReminders();
+      render();
+    } catch (e) {
+      showToast({ title: "操作失败", sub: e.message });
+    }
+    return;
+  }
   state.items = state.items.filter((x) => !x.done);
-  if (state.items.length === before) return;
-  saveState(state);
+  persistState();
   scheduleReminders();
   render();
 }
 
-function seed() {
+async function seed() {
   const base = [
     "把一个小问题先做完（不求完美）",
     "回两封邮件，别积压",
@@ -435,6 +626,29 @@ function seed() {
     "散步 15 分钟，给大脑降噪",
     "整理桌面/桌面文件夹 5 分钟",
   ];
+  if (useServer()) {
+    try {
+      for (let i = base.length - 1; i >= 0; i--) {
+        const item = {
+          id: uid(),
+          title: base[i],
+          done: !!(i % 4 === 0),
+          createdAt: nowIso(),
+          remindAt: i === 1 ? new Date(Date.now() + 90 * 1000).toISOString() : null,
+          dueAt: i === 2 ? new Date(Date.now() + 20 * 60 * 1000).toISOString() : null,
+          remindedAt: null,
+        };
+        const created = await api("POST", "/api/todos", item);
+        state.items.unshift(created);
+      }
+      persistState();
+      scheduleReminders();
+      render();
+    } catch (e) {
+      showToast({ title: "生成失败", sub: e.message });
+    }
+    return;
+  }
   for (let i = base.length - 1; i >= 0; i--) {
     state.items.unshift({
       id: uid(),
@@ -446,7 +660,7 @@ function seed() {
       remindedAt: null,
     });
   }
-  saveState(state);
+  persistState();
   scheduleReminders();
   render();
 }
@@ -456,22 +670,18 @@ function focusSearch() {
   els.title.select();
 }
 
-els.form.addEventListener("submit", (e) => {
+els.form.addEventListener("submit", async (e) => {
   e.preventDefault();
-  addItem(els.title.value);
+  await addItem(els.title.value);
   els.title.value = "";
   if (els.remindAt) els.remindAt.value = "";
   if (els.dueAt) els.dueAt.value = "";
   els.title.focus();
 });
 
-els.clearDone.addEventListener("click", () => {
-  clearDone();
-});
+els.clearDone.addEventListener("click", () => void clearDone());
 
-els.seed.addEventListener("click", () => {
-  seed();
-});
+els.seed.addEventListener("click", () => void seed());
 
 for (const b of els.filterBtns) {
   b.addEventListener("click", () => setFilter(b.dataset.filter));
@@ -487,16 +697,190 @@ window.addEventListener("keydown", (e) => {
 
   if (meta && e.key === "Backspace") {
     e.preventDefault();
-    clearDone();
+    void clearDone();
   }
 });
 
-migrateItems();
-hydrateComposer();
-setFilter(state.filter);
-scheduleReminders();
-initDtp();
-initEdit();
+async function apiPublic(method, path, payload) {
+  const r = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const text = await r.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = {};
+  }
+  if (!r.ok) throw new Error(typeof data.error === "string" ? data.error : text || String(r.status));
+  return data;
+}
+
+function showAuthErr(msg) {
+  if (!els.authErr) return;
+  els.authErr.textContent = msg;
+  els.authErr.hidden = !msg;
+}
+
+/** @param {"login" | "register"} pane */
+function setAuthPane(pane) {
+  const login = pane === "login";
+  if (els.loginForm) els.loginForm.hidden = !login;
+  if (els.registerForm) els.registerForm.hidden = login;
+  if (els.showRegister) els.showRegister.hidden = !login;
+  if (els.showLogin) els.showLogin.hidden = login;
+  showAuthErr("");
+}
+
+async function onAuthSuccess(res) {
+  authToken = res.token;
+  currentUsername = res.username || "";
+  try {
+    localStorage.setItem(TOKEN_KEY, authToken);
+  } catch (_) {}
+  const todos = await api("GET", "/api/todos");
+  state.items = Array.isArray(todos) ? todos : [];
+  state.filter = loadFilter();
+  migrateItems();
+  afterLoginInit();
+}
+
+let uiWired = false;
+function ensureUiWired() {
+  if (uiWired) return;
+  uiWired = true;
+  initDtp();
+  initEdit();
+}
+
+function afterLoginInit() {
+  hydrateComposer();
+  for (const b of els.filterBtns) {
+    const on = b.dataset.filter === state.filter;
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  }
+  saveFilterOnly();
+  scheduleReminders();
+  if (els.mainShell) els.mainShell.hidden = false;
+  if (els.authScreen) els.authScreen.hidden = true;
+  if (els.userRow) els.userRow.hidden = false;
+  if (els.displayUser) els.displayUser.textContent = currentUsername || "用户";
+  if (els.footLine) {
+    els.footLine.textContent = "已登录：数据在服务器 SQLite（data/todolist.db）；换设备请用同一账号登录。";
+  }
+  showAuthErr("");
+  ensureUiWired();
+  bindLogoutOnce();
+  render();
+}
+
+function initLocalApp() {
+  state = loadLegacyState();
+  migrateItems();
+  hydrateComposer();
+  setFilter(state.filter);
+  scheduleReminders();
+  if (els.authScreen) els.authScreen.hidden = true;
+  if (els.mainShell) els.mainShell.hidden = false;
+  if (els.userRow) els.userRow.hidden = true;
+  if (els.footLine) {
+    els.footLine.textContent =
+      "本地模式：数据在浏览器 localStorage；使用 npm start 打开本站并登录可改为云端账号数据。";
+  }
+  ensureUiWired();
+  render();
+}
+
+let authFormsBound = false;
+function bindAuthForms() {
+  if (authFormsBound) return;
+  authFormsBound = true;
+
+  els.loginForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    showAuthErr("");
+    try {
+      const res = await apiPublic("POST", "/api/auth/login", {
+        username: els.loginUser?.value?.trim(),
+        password: els.loginPass?.value || "",
+      });
+      await onAuthSuccess(res);
+    } catch (err) {
+      showAuthErr(err.message || "登录失败");
+    }
+  });
+
+  els.registerForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    showAuthErr("");
+    try {
+      const res = await apiPublic("POST", "/api/auth/register", {
+        username: els.regUser?.value?.trim(),
+        password: els.regPass?.value || "",
+      });
+      await onAuthSuccess(res);
+    } catch (err) {
+      showAuthErr(err.message || "注册失败");
+    }
+  });
+
+  els.showRegister?.addEventListener("click", () => setAuthPane("register"));
+
+  els.showLogin?.addEventListener("click", () => setAuthPane("login"));
+}
+
+let logoutBound = false;
+function bindLogoutOnce() {
+  if (logoutBound) return;
+  logoutBound = true;
+  els.logoutBtn?.addEventListener("click", () => {
+    logout();
+    if (els.authScreen) els.authScreen.hidden = false;
+    if (els.mainShell) els.mainShell.hidden = true;
+    if (els.loginPass) els.loginPass.value = "";
+    if (els.regPass) els.regPass.value = "";
+    setAuthPane("login");
+  });
+}
+
+async function boot() {
+  try {
+    const r = await fetch("/api/health", { cache: "no-store" });
+    apiMode = r.ok;
+  } catch {
+    apiMode = false;
+  }
+
+  if (!apiMode) {
+    initLocalApp();
+    return;
+  }
+
+  authToken = localStorage.getItem(TOKEN_KEY);
+  if (!authToken) {
+    if (els.mainShell) els.mainShell.hidden = true;
+    if (els.authScreen) els.authScreen.hidden = false;
+    bindAuthForms();
+    return;
+  }
+
+  try {
+    const todos = await api("GET", "/api/todos");
+    state.items = Array.isArray(todos) ? todos : [];
+    state.filter = loadFilter();
+    migrateItems();
+    afterLoginInit();
+  } catch {
+    logout();
+    if (els.mainShell) els.mainShell.hidden = true;
+    if (els.authScreen) els.authScreen.hidden = false;
+    bindAuthForms();
+  }
+}
+
+void boot();
 
 function hydrateComposer() {
   // 让刷新后输入框不莫名带旧值（浏览器自动填充有时会）
@@ -745,7 +1129,7 @@ function initEdit() {
     if (t && t.getAttribute && t.getAttribute("data-edit-close") === "1") closeEdit();
   });
 
-  els.editSave?.addEventListener("click", () => saveEdit());
+  els.editSave?.addEventListener("click", () => void saveEdit());
 
   window.addEventListener("keydown", (e) => {
     if (els.dtp && !els.dtp.hidden) return;
@@ -756,7 +1140,7 @@ function initEdit() {
     }
     if (e.key === "Enter" && e.target === els.editTitleInput) {
       e.preventDefault();
-      saveEdit();
+      void saveEdit();
     }
   });
 }
@@ -853,25 +1237,36 @@ function scheduleReminders() {
 
     const delay = at - now;
     if (delay <= 0) {
-      fireReminder(it.id);
+      void fireReminder(it.id);
       continue;
     }
     // setTimeout 有上限，太远的提醒下次 render/schedule 时再挂
     const safeDelay = Math.min(delay, 2 ** 31 - 1);
-    const timer = setTimeout(() => fireReminder(it.id), safeDelay);
+    const timer = setTimeout(() => void fireReminder(it.id), safeDelay);
     reminderTimers.set(it.id, timer);
   }
 }
 
-function fireReminder(id) {
+async function fireReminder(id) {
   const idx = findIndexById(id);
   if (idx < 0) return;
   const it = state.items[idx];
   if (!it || it.done) return;
   if (it.remindedAt) return;
 
-  it.remindedAt = nowIso();
-  saveState(state);
+  const ts = nowIso();
+  if (useServer()) {
+    try {
+      const updated = await api("PATCH", `/api/todos/${encodeURIComponent(id)}`, { remindedAt: ts });
+      state.items[idx] = updated;
+      persistState();
+    } catch {
+      return;
+    }
+  } else {
+    it.remindedAt = ts;
+    persistState();
+  }
 
   showToast({
     title: "提醒",
@@ -879,7 +1274,6 @@ function fireReminder(id) {
   });
   maybeNotifySystem("Todo 提醒", it.title);
 
-  // 把对应项做一个轻微高光弹性
   const li = els.list?.querySelector?.(`li.item[data-id="${id}"]`);
   if (li) confettiPulse(li);
 
